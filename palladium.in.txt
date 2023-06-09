@@ -1,0 +1,173 @@
+#Input Energy Minimization
+
+units		metal
+dimension	3
+boundary	p p p 
+atom_style	full
+
+
+#Read in metal Atoms
+read_data	Cu_Sedge2_30_30_30 group allatoms
+#Read in Top Atoms
+read_data	c_eject_up add append group graphene
+#Read in bottom Atoms
+#read_data	c_sqflake_dn0 add append group 3
+#Read in H Top Atoms
+#read_data	hedgestr_suarmAc_30 add append group 4
+#Read in H bottom Atoms
+#read_data	hedgestr_sdarmAc_30 add append group 5
+
+
+lattice fcc 3.859
+region interior block -0.1 10.0 -21.0 18.1 -9.1 -6.99 units lattice
+region interior1 block -0.1 10.0 -49.2 -41 -1.0 2.0 units lattice
+region interior2 block -0.1 10.0 40.0 50.0 -1.0 2.0 units lattice
+region interior3 block -0.1 10.0 23.8 29.3 -5.0 -1.0 units lattice
+region interior4 block -0.1 10.0 -33.0 -27.0 -5.0 -1.0 units lattice
+region bottom   block -200.0 200.0 -200.0 200.0 -20.0 -17.958 units lattice
+region upper   block -200.0 200.0 -200.0 200.0 -17.958 20 units lattice
+  
+#displace_atoms graphene move 0 -4.0 0.5 units lattice
+#displace_atoms graphene rotate 0 1.886 3.513 1 0 0 4.0 units lattice
+
+
+group 1 type 1
+group 2 type 2
+group inner region interior
+group inner1 region interior1
+group inner2 region interior2
+group inner3 region interior3
+group inner4 region interior4
+group bott region bottom
+group top region upper
+group 3 intersect top 1
+
+
+# ------Force Fields --------
+
+#pair_style eam/fs
+#pair_coeff * * Cu1.eam.fs Cu
+
+neighbor		1.0 bin
+neigh_modify delay 10 every 10 check yes page 5000000 one 500000
+
+# ------Force Fields --------
+# Interaction potential for carbon atoms
+######################## Potential defition ########################
+pair_style  hybrid eam/fs airebo 3.0 1 0 lj/cut 10
+#################################################################### 
+pair_coeff * * eam/fs  Cu1.eam.fs Cu NULL
+pair_coeff * * airebo  CH.airebo   NULL C   # chemical
+#pair_coeff 1 3 lj/cut 1.0e-1 3.2 10 # long-range
+pair_coeff 1 2 lj/cut 1.0e-2 3.2 10 # long-range
+####################################################################
+
+#Delete overlapping atoms
+delete_atoms overlap 0.4 all all
+
+
+
+
+
+fix 1 bott setforce 0. 0. 0.
+#fix 2 2 setforce 0. 0. 0.
+#fix 3 3 setforce 0. 0. 0.
+#fix 4 4 setforce 0. 0. 0.
+#fix 5 5 setforce 0. 0. 0.
+
+
+# ---------- Simulation Process ---------
+# Initial velocities at a given temperature
+#velocity top create 1200 12345 mom yes rot no
+#fix 2 top nvt temp 3500.0 3500.0 1000000.0
+fix 2 top nve
+fix 3 top langevin 1365.0 1365.0 10.0 323256
+#velocity bott zero linear
+
+# Timestep to make the integration of the motion equation
+timestep		0.001
+
+######################################################################
+#Compute Energy per atom in the interior
+#variable inner_nog equal count(2,interior)
+#variable inner_nocu equal count(1,interior)
+#variable inner_no equal count(inner)
+#variable inner1_nog equal count(2,interior1)
+#variable inner1_nocu equal count(1,interior1)
+#variable inner1_no equal count(inner1)
+compute atomEnergy all pe/atom
+#compute stratom all stress/atom NULL
+compute innerEnergy inner reduce sum c_atomEnergy
+#compute Tinner inner temp/partial 1 1 1
+#compute Tgr 2 temp/partial 1 1 1
+compute Tcu 3 temp/partial 1 1 1
+compute Tgr 2 temp/partial 1 1 1
+compute T1 inner temp/partial 1 1 1
+compute T2 inner1 temp/partial 1 1 1
+compute T3 inner3 temp/partial 1 1 1
+compute T4 inner4 temp/partial 1 1 1
+compute T5 inner2 temp/partial 1 1 1
+#compute atomEnergy1 inner1 pe/atom
+#compute inner1Energy inner1 reduce sum c_atomEnergy
+#compute LJ interaction
+compute 1 all pair lj/cut epair
+compute 2 2 pair airebo
+compute 3 1 pair eam/fs
+compute Tabove top temp/partial 1 1 1
+
+# Parameters to print out on the screen and log.lammps file
+thermo_style	custom step c_Tabove c_1 c_2 c_3  ke c_Tcu c_Tgr  c_T1 c_T2 c_T3 c_T4 c_T5 
+thermo			1000
+#thermo_modify lost ignore flush yes
+
+# Saving atomic coordinates
+#dump			1 all xyz 10 Cu_*.xyz
+#dump_modify		1 element Cu Cu
+
+dump			2 all custom 1000 corners_1350_*.xyz id type x y z vx vy vz c_atomEnergy #c_stratom[1] c_stratom[2] c_stratom[3] c_stratom[4] c_stratom[5] c_stratom[6]
+#dump_modify		2 element C C
+
+
+# Energy minimization parameters
+#min_style		fire
+#minimize		${etol} ${ftol} 100000 10000
+#minimize		1.0e-15 1.0e-15 100000 10000
+
+#fix 1 all box/relax iso 0.0 vmax 0.001
+
+min_style		cg
+minimize		1.0e-19 1.0e-20 100000 10000
+
+velocity top create 2900 851610 mom yes rot no
+
+run 200000
+
+#unfix 3
+
+#fix 3 top langevin 1350.0 1350.0 20.0 889483
+#run 50000000
+
+unfix 3
+run 50000000
+
+
+#fix 3 top langevin 1350.0 0.0 10.0 791483
+#run 400000
+
+#write_dump 1 xyz  attempt.reover*  modify element C C
+#write_dump 2 xyz  attempt.resub*  modify	element C C
+
+
+
+variable teng equal "pe"
+variable lj equal "c_1"
+variable airebo equal "c_2"
+variable eam equal "c_3"
+variable inner equal "c_innerEnergy"
+variable natoms equal "count(all)"
+variable ecoh equal "v_teng/v_natoms"
+print "${teng}, ${ecoh}, ${inner_no}, ${inner}, ${lj}, ${airebo}, ${eam}" 
+
+
+# ------ Simulation done -------
+print			"Simulation Complete"
